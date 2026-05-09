@@ -1,0 +1,51 @@
+FROM python:3.10-slim
+
+# Install Chrome and dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    gnupg \
+    unzip \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Google Chrome repository
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+RUN echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list
+
+# Install Chrome
+RUN apt-get update && apt-get install -y \
+    google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download ChromeDriver
+RUN CHROME_VERSION=$(google-chrome --version | awk '{print $NF}' | cut -d'.' -f1) && \
+    wget -q "https://chromedriver.chromium.org/downloads" && \
+    wget -q "https://edgedl.googleapis.com/chrome-for-testing/$(google-chrome --version | awk '{print $NF}' | cut -d'.' -f1-3)/linux64/chromedriver-linux64.zip" && \
+    unzip -q chromedriver-linux64.zip && \
+    mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && \
+    chmod +x /usr/local/bin/chromedriver && \
+    rm -rf chromedriver-linux64*
+
+# Fallback: Use a stable ChromeDriver version if the above fails
+RUN chromedriver --version || (wget -q "https://googlechromelabs.github.io/chrome-for-testing/" && wget -q "https://edgedl.googleapis.com/chrome-for-testing/124.0.6367.60/linux64/chromedriver-linux64.zip" && unzip -q chromedriver-linux64.zip && mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && chmod +x /usr/local/bin/chromedriver && rm -rf chromedriver-linux64*)
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY app.py .
+
+# Expose port
+EXPOSE 7000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:7000/health || exit 1
+
+# Run the application
+CMD ["python", "-u", "app.py"]
